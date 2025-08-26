@@ -1,0 +1,16 @@
+# User-specific configuration
+config.ini
+
+# Python cache
+__pycache__/
+*.pyc
+
+# Virtual environment
+venv/
+.venv/
+ENV/
+env/
+
+# IDE files
+.idea/
+.vscode/
