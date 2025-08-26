@@ -4,6 +4,7 @@ import os
 import random
 import subprocess
 import configparser
+import sys
 from tkinter import filedialog
 
 class FolderSelectWindow(customtkinter.CTkToplevel):
@@ -122,7 +123,13 @@ class App(customtkinter.CTk):
         self.title("Random File Selector")
         self.geometry("700x320")
 
-        self.config_file = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'config.ini')
+        if getattr(sys, 'frozen', False):
+            # .exe로 실행될 경우
+            base_path = os.path.dirname(sys.executable)
+        else:
+            # 스크립트로 실행될 경우
+            base_path = os.path.dirname(os.path.abspath(__file__))
+        self.config_file = os.path.join(base_path, 'config.ini')
 
         self.current_file_path = None
         self.selected_folders = []

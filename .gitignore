@@ -1,9 +1,14 @@
 # User-specific configuration
 config.ini
 
+# distribute
+build/
+dist/
+
 # Python cache
 __pycache__/
 *.pyc
+main.spec
 
 # Virtual environment
 venv/
