@@ -6,33 +6,98 @@ import subprocess
 import configparser
 from tkinter import filedialog
 
+class FolderSelectWindow(customtkinter.CTkToplevel):
+    def __init__(self, master):
+        super().__init__(master)
+        self.master = master
+
+        self.title("Select Folders")
+        self.geometry("800x500")
+        self.transient(master)
+        self.grab_set()
+
+        self.grid_columnconfigure(1, weight=1) # Path label column expands
+
+        self.path_labels = []
+        for i in range(10):
+            row_frame = customtkinter.CTkFrame(self, width=600)
+            row_frame.grid(row=i)
+
+            # 1. Number Label
+            num_label = customtkinter.CTkLabel(row_frame, width=25, text=f"{i+1}")
+            num_label.grid(row=i, column=0, padx=(10,5), pady=5)
+
+            # 2. Path Display Label
+            path_label_frame = customtkinter.CTkFrame(row_frame, height=20)
+            path_label_frame.grid(row=i, column=1, padx=5, pady=5, sticky="ew")
+            path_label = customtkinter.CTkLabel(path_label_frame, width=500, text="", anchor="w")
+            path_label.grid(sticky="nsew")
+            self.path_labels.append(path_label)
+
+            # 3. Browse Button
+            browse_button = customtkinter.CTkButton(row_frame, text="Browse...", width=100, 
+                                                  command=lambda i=i: self.browse_for_row(i))
+            browse_button.grid(row=i, column=2, padx=5, pady=5)
+
+            # 4. Delete Button
+            delete_button = customtkinter.CTkButton(row_frame, text="Clear", width=70,
+                                                  command=lambda i=i: self.clear_row(i))
+            delete_button.grid(row=i, column=3, padx=(5,10), pady=5)
+
+        # Populate initial data from master list
+        for i, folder in enumerate(self.master.selected_folders):
+            if i < 10:
+                self.path_labels[i].configure(text=folder)
+
+        # --- Bottom Buttons ---
+        self.button_frame = customtkinter.CTkFrame(self)
+        self.button_frame.grid(row=10, pady=20)
+
+        self.confirm_button = customtkinter.CTkButton(self.button_frame, text="Confirm", command=self.confirm_selection)
+        self.confirm_button.pack(side="left", padx=10)
+
+        self.cancel_button = customtkinter.CTkButton(self.button_frame, text="Cancel", command=self.destroy)
+        self.cancel_button.pack(side="left", padx=10)
+
+    def browse_for_row(self, row_index):
+        folder_path = filedialog.askdirectory()
+        if folder_path:
+            self.path_labels[row_index].configure(text=folder_path)
+
+    def clear_row(self, row_index):
+        self.path_labels[row_index].configure(text="")
+
+    def confirm_selection(self):
+        folder_paths = [label.cget("text") for label in self.path_labels]
+        self.master.selected_folders = [path.strip() for path in folder_paths if path.strip()]
+        self.master.update_folder_display()
+        self.master.save_settings() # Also save folders on confirm
+        self.destroy()
+
 class OptionsWindow(customtkinter.CTkToplevel):
     def __init__(self, master):
         super().__init__(master)
         self.master = master
 
         self.title("Filter Options")
-        self.geometry("500x400") # Adjusted window height
+        self.geometry("500x400")
         self.transient(master)
         self.grab_set()
 
         self.grid_columnconfigure(0, weight=1)
 
-        # Blacklist
         self.blacklist_label = customtkinter.CTkLabel(self, text="Blacklist (comma-separated extensions):")
         self.blacklist_label.grid(row=0, column=0, padx=10, pady=(10,0), sticky="w")
-        self.blacklist_textbox = customtkinter.CTkTextbox(self, height=120) # Set fixed height
+        self.blacklist_textbox = customtkinter.CTkTextbox(self, height=120)
         self.blacklist_textbox.grid(row=1, column=0, padx=10, pady=10, sticky="nsew")
         self.blacklist_textbox.insert("1.0", self.master.blacklist_str)
 
-        # Whitelist
         self.whitelist_label = customtkinter.CTkLabel(self, text="Whitelist (comma-separated extensions):")
         self.whitelist_label.grid(row=2, column=0, padx=10, pady=(10,0), sticky="w")
-        self.whitelist_textbox = customtkinter.CTkTextbox(self, height=120) # Set fixed height
+        self.whitelist_textbox = customtkinter.CTkTextbox(self, height=120)
         self.whitelist_textbox.grid(row=3, column=0, padx=10, pady=10, sticky="nsew")
         self.whitelist_textbox.insert("1.0", self.master.whitelist_str)
 
-        # Action Buttons
         self.button_frame = customtkinter.CTkFrame(self)
         self.button_frame.grid(row=4, column=0, pady=10)
 
@@ -43,14 +108,10 @@ class OptionsWindow(customtkinter.CTkToplevel):
         self.cancel_button.pack(side="left", padx=10)
 
     def save_and_close(self):
-        # Get text directly, newlines are no longer processed
         blacklist_text = self.blacklist_textbox.get("1.0", "end-1c")
         whitelist_text = self.whitelist_textbox.get("1.0", "end-1c")
-
-        # Clean up text by removing newlines and ensuring single comma separation
         self.master.blacklist_str = ','.join(filter(None, (ext.strip() for ext in blacklist_text.replace('\n', ',').split(','))))
         self.master.whitelist_str = ','.join(filter(None, (ext.strip() for ext in whitelist_text.replace('\n', ',').split(','))))
-
         self.master.save_settings()
         self.destroy()
 
@@ -64,10 +125,11 @@ class App(customtkinter.CTk):
         self.config_file = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'config.ini')
 
         self.current_file_path = None
+        self.selected_folders = []
         self.blacklist_str = ""
         self.whitelist_str = ""
         self.options_window = None
-        self.load_settings()
+        self.folder_select_window = None
 
         self.TEXT_COLOR = ("#000000", "#FFFFFF")
         self.ERROR_COLOR = ("#D2042D", "#FF474C")
@@ -77,16 +139,17 @@ class App(customtkinter.CTk):
         self.grid_columnconfigure(0, weight=1)
         self.grid_rowconfigure(3, weight=1)
 
-        self.input_frame = customtkinter.CTkFrame(self)
-        self.input_frame.grid(row=0, column=0, padx=10, pady=(10,5), sticky="ew")
-        self.input_frame.grid_columnconfigure(1, weight=1)
+        self.folder_frame = customtkinter.CTkFrame(self)
+        self.folder_frame.grid(row=0, column=0, padx=10, pady=(10,5), sticky="ew")
+        self.folder_frame.grid_columnconfigure(0, weight=1)
 
-        self.folder_label = customtkinter.CTkLabel(self.input_frame, text="Folder:")
-        self.folder_label.grid(row=0, column=0, padx=10, pady=10, sticky="w")
-        self.folder_entry = customtkinter.CTkEntry(self.input_frame, placeholder_text="Select a folder to search")
-        self.folder_entry.grid(row=0, column=1, padx=10, pady=10, sticky="ew")
-        self.browse_button = customtkinter.CTkButton(self.input_frame, text="Browse...", command=self.browse_folder)
-        self.browse_button.grid(row=0, column=2, padx=10, pady=10)
+        self.selected_folders_label = customtkinter.CTkLabel(self.folder_frame, text="Selected Folders:", font=customtkinter.CTkFont(weight="bold"))
+        self.selected_folders_label.grid(row=0, column=0, padx=10, pady=(5,0), sticky="w")
+        self.folders_display_label = customtkinter.CTkLabel(self.folder_frame, text="No folders selected.", anchor="w", justify="left")
+        self.folders_display_label.grid(row=1, column=0, padx=10, pady=5, sticky="ew")
+        
+        self.select_folders_button = customtkinter.CTkButton(self.folder_frame, text="Select Folder(s)...", command=self.open_folder_select_window)
+        self.select_folders_button.grid(row=0, column=1, rowspan=2, padx=10, pady=10)
 
         self.main_button_frame = customtkinter.CTkFrame(self)
         self.main_button_frame.grid(row=1, column=0, padx=10, pady=5, sticky="ew")
@@ -119,6 +182,7 @@ class App(customtkinter.CTk):
         self.show_button = customtkinter.CTkButton(self.action_frame, text="Show in Explorer", command=self.show_in_explorer, state="disabled")
         self.show_button.grid(row=0, column=1, padx=10, pady=5, sticky="ew")
         
+        self.load_settings() # Moved to after widget creation
         self.protocol("WM_DELETE_WINDOW", self.on_closing)
 
     def load_settings(self):
@@ -127,12 +191,17 @@ class App(customtkinter.CTk):
             config.read(self.config_file)
             self.blacklist_str = config.get('Filters', 'blacklist', fallback='')
             self.whitelist_str = config.get('Filters', 'whitelist', fallback='')
+            self.selected_folders = [path.strip() for path in config.get('Folders', 'paths', fallback='').split('\n') if path.strip()]
+        self.update_folder_display()
 
     def save_settings(self):
         config = configparser.ConfigParser()
         config['Filters'] = {
             'blacklist': self.blacklist_str,
             'whitelist': self.whitelist_str
+        }
+        config['Folders'] = {
+            'paths': '\n'.join(self.selected_folders)
         }
         with open(self.config_file, 'w') as f:
             config.write(f)
@@ -141,24 +210,32 @@ class App(customtkinter.CTk):
         self.save_settings()
         self.destroy()
 
+    def open_folder_select_window(self):
+        if self.folder_select_window is None or not self.folder_select_window.winfo_exists():
+            self.folder_select_window = FolderSelectWindow(self)
+        else:
+            self.folder_select_window.focus()
+
+    def update_folder_display(self):
+        if not self.selected_folders:
+            self.folders_display_label.configure(text="No folders selected.")
+        else:
+            display_text = "\n".join(self.selected_folders[:3])
+            if len(self.selected_folders) > 3:
+                display_text += f"\n...and {len(self.selected_folders) - 3} more folder(s)."
+            self.folders_display_label.configure(text=display_text)
+
     def open_options_window(self):
         if self.options_window is None or not self.options_window.winfo_exists():
             self.options_window = OptionsWindow(self)
         else:
             self.options_window.focus()
 
-    def browse_folder(self):
-        folder_path = filedialog.askdirectory()
-        if folder_path:
-            self.folder_entry.delete(0, "end")
-            self.folder_entry.insert(0, folder_path)
-
     def find_random_file(self):
-        folder_path = self.folder_entry.get()
         self.current_file_path = None
 
-        if not os.path.isdir(folder_path):
-            self.result_label.configure(text="Error: Invalid folder path.", text_color=self.ERROR_COLOR)
+        if not self.selected_folders:
+            self.result_label.configure(text="Error: No folders selected. Please select one or more folders.", text_color=self.ERROR_COLOR)
             self.update_action_buttons_state()
             return
 
@@ -168,18 +245,22 @@ class App(customtkinter.CTk):
         selected_file = None
         eligible_file_count = 0
         try:
-            for root, _, files in os.walk(folder_path):
-                for file in files:
-                    file_ext = os.path.splitext(file)[1].lower()
+            for folder_path in self.selected_folders:
+                if not os.path.isdir(folder_path):
+                    continue
 
-                    if file_ext in blacklist:
-                        continue
-                    if whitelist and file_ext not in whitelist:
-                        continue
-                    
-                    eligible_file_count += 1
-                    if random.randint(1, eligible_file_count) == 1:
-                        selected_file = os.path.join(root, file)
+                for root, _, files in os.walk(folder_path):
+                    for file in files:
+                        file_ext = os.path.splitext(file)[1].lower()
+
+                        if file_ext in blacklist:
+                            continue
+                        if whitelist and file_ext not in whitelist:
+                            continue
+                        
+                        eligible_file_count += 1
+                        if random.randint(1, eligible_file_count) == 1:
+                            selected_file = os.path.join(root, file)
 
         except Exception as e:
             self.result_label.configure(text=f"An error occurred: {e}", text_color=self.ERROR_COLOR)
@@ -190,7 +271,7 @@ class App(customtkinter.CTk):
             self.current_file_path = selected_file
             self.result_label.configure(text=self.current_file_path, text_color=self.TEXT_COLOR)
         else:
-            self.result_label.configure(text="No eligible files found with the current filters.", text_color=self.WARNING_COLOR)
+            self.result_label.configure(text="No eligible files found in the selected folders with the current filters.", text_color=self.WARNING_COLOR)
         
         self.update_action_buttons_state()
 
